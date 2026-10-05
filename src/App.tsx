@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import './App.css'
+import Scene from './Scene'
 
 interface Item {
   id: string;
@@ -62,6 +63,9 @@ function App() {
   // Új doboz űrlap állapotai
   const [newBox, setNewBox] = useState({ width: '', height: '', depth: '', weight: '' })
 
+  // ÚJ: Random doboz generáló állapota (alapértelmezetten 10 db)
+  const [randomCount, setRandomCount] = useState<number | string>(10)
+
   useEffect(() => {
     fetch('http://localhost:8000/api/v1/containers')
       .then(res => res.json())
@@ -97,6 +101,39 @@ function App() {
   const handleRemoveBox = (idToRemove: string) => {
     setItems(items.filter(item => item.id !== idToRemove));
   }
+
+  // Random dobozok generálása
+  const handleGenerateRandomBoxes = () => {
+    const count = parseInt(randomCount as string);
+    if (isNaN(count) || count <= 0) {
+      alert("Kérlek, adj meg egy érvényes darabszámot!");
+      return;
+    }
+
+    const newRandomBoxes: Item[] = [];
+    const currentLength = items.length;
+
+    for (let i = 0; i < count; i++) {
+      // Véletlenszerű méretek 20 és 80 cm között
+      const w = Math.floor(Math.random() * 31) + 20;
+      const h = Math.floor(Math.random() * 31) + 20;
+      const d = Math.floor(Math.random() * 31) + 20;
+      // Véletlenszerű súly 5 és 50 kg között
+      const weight = Math.floor(Math.random() * 36) + 5;
+
+      newRandomBoxes.push({
+        id: `RND-${String(currentLength + i + 1).padStart(3, '0')}`,
+        width: w,
+        height: h,
+        depth: d,
+        weight: weight,
+        can_rotate: true
+      });
+    }
+
+    setItems([...items, ...newRandomBoxes]);
+  }
+
 
   const handleOptimize = async () => {
     if (items.length === 0) {
@@ -166,6 +203,23 @@ function App() {
           <button onClick={handleAddBox} style={{ width: '100%', padding: '8px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
             + Hozzáadás a listához
           </button>
+
+          {/* ÚJ: Random generáló szekció */}
+          <div style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px solid #ccc', display: 'flex', gap: '10px' }}>
+            <input
+              type="number"
+              min="1"
+              value={randomCount}
+              onChange={e => setRandomCount(e.target.value)}
+              style={{ width: '30%', padding: '8px', backgroundColor: 'white', color: 'black', borderRadius: '4px', border: '1px solid #ccc' }}
+            />
+            <button
+              onClick={handleGenerateRandomBoxes}
+              style={{ flex: 1, padding: '8px', backgroundColor: '#17a2b8', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              🎲 {randomCount} db Random Doboz Generálása
+            </button>
+          </div>
         </div>
 
         {/* Dobozok listája */}
@@ -193,7 +247,7 @@ function App() {
       </div>
 
       {/* Jobb oszlop: Eredmények */}
-      <div style={{ flex: 2 }}>
+      <div style={{ flex: 2 , color: 'white'}}>
         <h2>Eredmények</h2>
         {!result ? (
           <p>Válassz konténert, adj meg dobozokat és kattints az optimalizálás indítása gombra.</p>
@@ -212,7 +266,7 @@ function App() {
             </div>
 
             <h3>Elhelyezett dobozok koordinátái:</h3>
-            <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', color: '#000' }}>
+            <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', color: 'white' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid #ddd' }}>
                   <th style={{ padding: '8px' }}>ID</th>
@@ -233,6 +287,19 @@ function App() {
                   </tr>
                 ))}
               </tbody>
+              {/* 3D Vizualizáció - Ide kerül a doboz! */}
+            <div style={{ marginTop: '30px' }}>
+              <h3>3D Vizualizáció</h3>
+              <p style={{ fontSize: '14px', color: '#666' }}>
+                Használd a bal egeret a forgatáshoz, a görgőt a nagyításhoz.
+              </p>
+              <div style={{ height: '500px', backgroundColor: '#222', borderRadius: '8px', overflow: 'hidden' }}>
+                <Scene
+                  container={dbContainers.find(c => c.id === selectedContainerId)!}
+                  placedItems={result.placed_items}
+                />
+              </div>
+            </div>
             </table>
           </div>
         )}
