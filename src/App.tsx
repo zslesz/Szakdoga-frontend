@@ -53,6 +53,9 @@ function App() {
   const [dbContainers, setDbContainers] = useState<Container[]>([])
   const [selectedContainerId, setSelectedContainerId] = useState<string>("")
 
+  const [isPackingListOpen, setIsPackingListOpen] = useState(false);
+  const [isPlacedListOpen, setIsPlacedListOpen] = useState(false);
+
   // Dinamikus doboz lista állapot (3 alap dobozzal indulunk)
   const [items, setItems] = useState<Item[]>([
     { id: "BOX-001", width: 50.0, height: 40.0, depth: 30.0, weight: 25.0, can_rotate: true },
@@ -102,7 +105,7 @@ function App() {
     setItems(items.filter(item => item.id !== idToRemove));
   }
 
-  // Random dobozok generálása
+  // Szabványosított random dobozok generálása
   const handleGenerateRandomBoxes = () => {
     const count = parseInt(randomCount as string);
     if (isNaN(count) || count <= 0) {
@@ -113,19 +116,28 @@ function App() {
     const newRandomBoxes: Item[] = [];
     const currentLength = items.length;
 
+    // Ipari standard dobozméretek (Egymás többszörösei, hogy jól épüljenek)
+    const STANDARD_SIZES = [
+      { w: 60, h: 40, d: 40, maxWeight: 35 }, // L-es doboz
+      { w: 40, h: 30, d: 30, maxWeight: 20 }, // M-es doboz
+      { w: 30, h: 20, d: 20, maxWeight: 10 }, // S-es doboz
+      { w: 40, h: 40, d: 40, maxWeight: 25 }, // Kocka
+      { w: 80, h: 40, d: 20, maxWeight: 30 }, // Lapos/Hosszú doboz
+      { w: 60, h: 20, d: 40, maxWeight: 20 }, // Fél-magas L-es doboz
+    ];
+
     for (let i = 0; i < count; i++) {
-      // Véletlenszerű méretek 20 és 80 cm között
-      const w = Math.floor(Math.random() * 31) + 20;
-      const h = Math.floor(Math.random() * 31) + 20;
-      const d = Math.floor(Math.random() * 31) + 20;
-      // Véletlenszerű súly 5 és 50 kg között
-      const weight = Math.floor(Math.random() * 36) + 5;
+      // Véletlenszerűen kiválasztunk egy szabvány méretet
+      const size = STANDARD_SIZES[Math.floor(Math.random() * STANDARD_SIZES.length)];
+
+      // A súlyt a mérethez igazítjuk (5 kg és a doboz max súlya között)
+      const weight = Math.floor(Math.random() * (size.maxWeight - 5 + 1)) + 5;
 
       newRandomBoxes.push({
         id: `RND-${String(currentLength + i + 1).padStart(3, '0')}`,
-        width: w,
-        height: h,
-        depth: d,
+        width: size.w,
+        height: size.h,
+        depth: size.d,
         weight: weight,
         can_rotate: true
       });
@@ -222,20 +234,38 @@ function App() {
           </div>
         </div>
 
-        {/* Dobozok listája */}
-        <div style={{ marginBottom: '20px' }}>
-          <h3>Pakolandó dobozok ({items.length} db):</h3>
-          <ul style={{ paddingLeft: '0', listStyle: 'none' }}>
-            {items.map(item => (
-              <li key={item.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', borderBottom: '1px solid #ddd', alignItems: 'center' }}>
-                <span>{item.id} - {item.width}x{item.height}x{item.depth} cm ({item.weight} kg)</span>
-                <button onClick={() => handleRemoveBox(item.id)} style={{ backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}>
-                  Törlés
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
+        {/* --- LENYITHATÓ FÜL: Pakolandó dobozok --- */}
+          <div style={{ marginTop: '20px' }}>
+            <button
+              onClick={() => setIsPackingListOpen(!isPackingListOpen)}
+              style={{
+                width: '100%', padding: '12px', backgroundColor: '#e2e8f0', color: '#1a202c',
+                border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '16px'
+              }}
+            >
+              <span>📦 Pakolandó dobozok ({items.length} db)</span>
+              <span>{isPackingListOpen ? '▲' : '▼'}</span>
+            </button>
+
+            {isPackingListOpen && (
+              <div style={{
+                marginTop: '10px', maxHeight: '300px', overflowY: 'auto',
+                padding: '10px', backgroundColor: '#f7fafc', borderRadius: '6px', border: '1px solid #e2e8f0'
+              }}>
+                {items.map((item, index) => (
+                  <div key={index} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #edf2f7' }}>
+                    <span>{item.id} - {item.width}x{item.height}x{item.depth} cm ({item.weight} kg)</span>
+                    <button onClick={() => handleRemoveBox(item.id)} style={{ backgroundColor: '#e53e3e', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}>
+                      Törlés
+                    </button>
+                  </div>
+                ))}
+                {items.length === 0 && <div style={{ textAlign: 'center', color: '#a0aec0' }}>Nincs doboz a listában.</div>}
+              </div>
+            )}
+          </div>
+          {/* ----------------------------------------- */}
 
         <button
           onClick={handleOptimize}
@@ -267,26 +297,50 @@ function App() {
 
             <h3>Elhelyezett dobozok koordinátái:</h3>
             <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', color: 'white' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #ddd' }}>
-                  <th style={{ padding: '8px' }}>ID</th>
-                  <th style={{ padding: '8px' }}>X</th>
-                  <th style={{ padding: '8px' }}>Y</th>
-                  <th style={{ padding: '8px' }}>Z</th>
-                  <th style={{ padding: '8px' }}>Rotált Méret (W x H x D)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.placed_items.map((pi, index) => (
-                  <tr key={index} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '8px' }}>{pi.item.id}</td>
-                    <td style={{ padding: '8px' }}>{pi.x}</td>
-                    <td style={{ padding: '8px' }}>{pi.y}</td>
-                    <td style={{ padding: '8px' }}>{pi.z}</td>
-                    <td style={{ padding: '8px' }}>{pi.w} x {pi.h} x {pi.d}</td>
+              {/* --- LENYITHATÓ FÜL: Elhelyezett koordináták --- */}
+        <div style={{ marginTop: '20px', marginBottom: '20px' }}>
+          <button
+            onClick={() => setIsPlacedListOpen(!isPlacedListOpen)}
+            style={{
+              width: '100%', padding: '12px', backgroundColor: '#2d3748', color: 'white',
+              border: '1px solid #4a5568', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '16px'
+            }}
+          >
+            <span>📍 Elhelyezett dobozok koordinátái ({result?.placed_items?.length || 0} db)</span>
+            <span>{isPlacedListOpen ? '▲' : '▼'}</span>
+          </button>
+
+          {isPlacedListOpen && result && result.placed_items && (
+            <div style={{
+              marginTop: '10px', maxHeight: '400px', overflowY: 'auto',
+              backgroundColor: '#1a202c', border: '1px solid #2d3748', borderRadius: '6px'
+            }}>
+              <table style={{ width: '100%', color: 'white', borderCollapse: 'collapse', textAlign: 'left' }}>
+                <thead style={{ position: 'sticky', top: 0, backgroundColor: '#2d3748' }}>
+                  <tr style={{ borderBottom: '2px solid #ddd' }}>
+                    <th style={{ padding: '8px' }}>ID</th>
+                    <th style={{ padding: '8px' }}>X</th>
+                    <th style={{ padding: '8px' }}>Y</th>
+                    <th style={{ padding: '8px' }}>Z</th>
+                    <th style={{ padding: '8px' }}>Rotált Méret (W x H x D)</th>
                   </tr>
-                ))}
-              </tbody>
+                </thead>
+                <tbody>
+                  {result.placed_items.map((pi: any, index: number) => (
+                    <tr key={index} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: '8px' }}>{pi.item.id}</td>
+                      <td style={{ padding: '8px' }}>{pi.x}</td>
+                      <td style={{ padding: '8px' }}>{pi.y}</td>
+                      <td style={{ padding: '8px' }}>{pi.z}</td>
+                      <td style={{ padding: '8px' }}>{pi.w} x {pi.h} x {pi.d}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
               {/* 3D Vizualizáció - Ide kerül a doboz! */}
             <div style={{ marginTop: '30px' }}>
               <h3>3D Vizualizáció</h3>
