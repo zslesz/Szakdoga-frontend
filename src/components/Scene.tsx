@@ -1,10 +1,12 @@
 import { useMemo } from 'react'
-import * as THREE from 'three'
+import * as THREE from 'three' // HIBA JAVÍTVA: import * as THREE
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Edges } from '@react-three/drei'
 
-// Kiegészítettük a típusokat a ferde fal (contour) adataival
+// Kiegészítettük a típusokat a ferde fal (contour) adataival, illetve az id-val és névvel
 interface Container {
+  id: string;
+  name: string;
   width: number;
   height: number;
   depth: number;
@@ -33,25 +35,25 @@ export default function Scene({ container, placedItems }: SceneProps) {
   const cy = container.height / 2;
   const cz = container.depth / 2;
 
-// 1. Megrajzoljuk a konténer 2D-s profilját (az XY síkon)
+  // 1. Megrajzoljuk a konténer 2D-s profilját (az XY síkon)
   const containerShape = useMemo(() => {
     const shape = new THREE.Shape();
 
     if (container.base_width && container.base_width < container.width) {
       // Megnézzük, hogy kétoldalas-e
-      const isDoubleContoured = container.id.includes("ALF") || container.name.includes("Double");
+      const isDoubleContoured = String(container.id).includes("ALF") || container.name.includes("Double");
 
       if (isDoubleContoured) {
         // --- KÉTOLDALAS LEVÁGÁS (ALF) ---
-        const margin = (container.width - container.base_width) / 2;
+        const margin = (container.width - container.base_width) / 2; // HIBA JAVÍTVA: kivonásjel
 
-        shape.moveTo(margin, 0); // Bal alsó (beljebb kezdődik)
-        shape.lineTo(container.width - margin, 0); // Jobb alsó
-        shape.lineTo(container.width, container.contour_height); // Jobb oldali ferde fal
-        shape.lineTo(container.width, container.height); // Jobb felső sarok
-        shape.lineTo(0, container.height); // Bal felső sarok
-        shape.lineTo(0, container.contour_height); // Bal oldali egyenes fal lefelé
-        shape.lineTo(margin, 0); // Bal oldali ferde fal (vissza a kezdőponthoz)
+        shape.moveTo(margin, 0);
+        shape.lineTo(container.width - margin, 0); // HIBA JAVÍTVA: kivonásjel
+        shape.lineTo(container.width, container.contour_height);
+        shape.lineTo(container.width, container.height);
+        shape.lineTo(0, container.height);
+        shape.lineTo(0, container.contour_height);
+        shape.lineTo(margin, 0);
 
       } else {
         // --- EGYOLDALAS LEVÁGÁS (AKE) ---
@@ -77,29 +79,24 @@ export default function Scene({ container, placedItems }: SceneProps) {
   // 2. Beállítjuk, hogy milyen mélyre húzza ki a 2D-s formát a térben
   const extrudeSettings = useMemo(() => ({
     depth: container.depth,
-    bevelEnabled: false, // Ne gömbölyítse le az éleket
+    bevelEnabled: false,
   }), [container.depth]);
 
   return (
+    // HIBA JAVÍTVA: Szorzásjelek (*) hozzáadva a kamera pozíciójához
     <Canvas camera={{ position: [container.width * 1.5, container.height * 1.5, container.depth * 1.5], fov: 50 }}>
-
       <ambientLight intensity={0.6} />
       <directionalLight position={[100, 200, 100]} intensity={1.5} />
 
       <OrbitControls makeDefault />
 
-      {/* A group továbbra is középre igazítja az egész modellt a kamerának */}
       <group position={[-cx, -cy, -cz]}>
-
-        {/* A Konténer - BoxGeometry helyett ExtrudeGeometry-vel */}
-        {/* Az ExtrudeGeometry alapból a 0,0,0-ból indul, így nem kell neki külön X,Y,Z pozíció (eltolás) */}
         <mesh position={[0, 0, 0]}>
           <extrudeGeometry args={[containerShape, extrudeSettings]} />
           <meshStandardMaterial color="#88ccff" transparent opacity={0.15} depthWrite={false} />
           <Edges color="#0055ff" />
         </mesh>
 
-        {/* A Bepakolt Dobozok - Ez a rész változatlan */}
         {placedItems.map((pi, index) => {
           const posX = pi.x + pi.w / 2;
           const posY = pi.y + pi.h / 2;
@@ -115,7 +112,6 @@ export default function Scene({ container, placedItems }: SceneProps) {
             </mesh>
           )
         })}
-
       </group>
     </Canvas>
   )
