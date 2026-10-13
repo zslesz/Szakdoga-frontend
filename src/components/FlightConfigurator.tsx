@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import WeightBalancePanel from './WeightBalancePanel';
 import Scene from './Scene';
+import FuelCalculator from './FuelCalculator';
 
 // 1. Típusok definiálása
 interface ULDContainer {
@@ -28,6 +29,18 @@ interface Aircraft {
   compatible_containers?: ULDContainer[];
 }
 
+// Új: Kézzel felvitt / Generált doboz típusa
+interface CargoItem {
+  id: string;
+  width: number;
+  height: number;
+  depth: number;
+  weight: number;
+  can_rotate: boolean;
+  type?: string;
+  is_placed?: boolean; // Pakolás után beállítjuk
+}
+
 interface PlacedItem {
   item: {
     id: string;
@@ -49,8 +62,15 @@ export default function FlightConfigurator() {
   const [loading, setLoading] = useState<boolean>(true);
   const [boxCount, setBoxCount] = useState<number>(40);
 
-  // A bepakolt csomagok memóriája
+  // --- Rakomány lista (kézi + generált) ---
+  const [cargoItems, setCargoItems] = useState<CargoItem[]>([]);
   const [packedItems, setPackedItems] = useState<PlacedItem[]>([]);
+  const [unpackedItemsCount, setUnpackedItemsCount] = useState<number>(0);
+
+  // --- Kézi doboz hozzáadás form state (KIBŐVÍTVE A DARABSZÁMMAL) ---
+  const [manualBox, setManualBox] = useState({
+    w: 50, h: 50, d: 50, weight: 15, count: 1
+  });
 
   useEffect(() => {
     const fetchAircrafts = async () => {
@@ -71,53 +91,82 @@ export default function FlightConfigurator() {
     void fetchAircrafts();
   }, []);
 
-  // --- GLOBÁLIS VÁLTOZÓK ---
   const selectedAircraftData = aircrafts.find(ac => ac.id === selectedAircraft);
   const selectedULD = selectedAircraftData?.compatible_containers?.find(
     c => String(c.id) === selectedContainerId
   );
 
-  // Valós API hívás a Python Bin Packing Backendhez
-  // Valós API hívás a Python Bin Packing Backendhez (Szabványosított dobozokkal)
-  const handleGenerateBoxes = async () => {
-    if (!selectedULD || !selectedULD.width) return;
+  // --- Manuális doboz(ok) hozzáadása a listához ---
+  const handleAddManualBox = () => {
+    const newBoxes: CargoItem[] = [];
+    const baseId = Date.now().toString().slice(-5);
 
-    setLoading(true);
+    // Ciklus, ami annyiszor fut le, amennyit a Darab mezőbe írtak
+    for (let i = 0; i < (manualBox.count || 1); i++) {
+      newBoxes.push({
+        id: `MANUAL-${baseId}-${i}`, // Egyedi ID minden doboznak
+        width: manualBox.w,
+        height: manualBox.h,
+        depth: manualBox.d,
+        weight: manualBox.weight,
+        can_rotate: true,
+        type: 'Egyedi'
+      });
+    }
 
-    // 1. Szabványos futárszolgálati dobozméretek (DPD, DHL, GLS minta alapján)
+    setCargoItems([...cargoItems, ...newBoxes]);
+    setPackedItems([]);
+    setUnpackedItemsCount(0);
+  };
+
+  // --- Csak generálja a dobozokat, és beteszi a listába ---
+  const handleGenerateBoxes = () => {
     const STANDARD_BOXES = [
-      { type: 'S',  w: 30, h: 20, d: 15, maxWeight: 5 },   // Kisebb elektronika, könyvek
-      { type: 'M',  w: 40, h: 30, d: 20, maxWeight: 10 },  // Cipősdoboz méret, ruhák
-      { type: 'L',  w: 60, h: 40, d: 30, maxWeight: 20 },  // Normál csomag (pl. mikrohullámú sütő doboza)
-      { type: 'XL', w: 80, h: 60, d: 40, maxWeight: 31 }   // Nemzetközi futár limit (31.5kg)
+      { type: 'S',  w: 30, h: 20, d: 15, maxWeight: 5 },
+      { type: 'M',  w: 40, h: 30, d: 20, maxWeight: 10 },
+      { type: 'L',  w: 60, h: 40, d: 30, maxWeight: 20 },
+      { type: 'XL', w: 80, h: 60, d: 40, maxWeight: 31 }
     ];
 
-    // 2. Generálunk egy adag szabványos dobozt
-    const rawItems = [];
-    for (let i = 0; i < boxCount; i++) {
-      // Véletlenszerűen kiválasztunk egyet a 4 szabványos méret közül
-      const randomBoxTemplate = STANDARD_BOXES[Math.floor(Math.random() * STANDARD_BOXES.length)];
+    const newGeneratedItems: CargoItem[] = [];
+    const baseId = Date.now().toString().slice(-4);
 
-      // A súly 1 kg és a doboz maximális teherbírása között lesz véletlenszerűen
+    for (let i = 0; i < boxCount; i++) {
+      const randomBoxTemplate = STANDARD_BOXES[Math.floor(Math.random() * STANDARD_BOXES.length)];
       const randomWeight = Math.floor(1 + Math.random() * randomBoxTemplate.maxWeight);
 
-      rawItems.push({
-        id: `BOX-${randomBoxTemplate.type}-${i}`, // Pl. BOX-M-12 (Így látod majd a méretet az ID-ban is)
+      newGeneratedItems.push({
+        id: `BOX-${randomBoxTemplate.type}-${baseId}-${i}`,
         width: randomBoxTemplate.w,
         height: randomBoxTemplate.h,
         depth: randomBoxTemplate.d,
         weight: randomWeight,
-        can_rotate: true
+        can_rotate: true,
+        type: randomBoxTemplate.type
       });
     }
 
+    setCargoItems([...cargoItems, ...newGeneratedItems]);
+    setPackedItems([]);
+    setUnpackedItemsCount(0);
+  };
+
+  const handleClearBoxes = () => {
+    setCargoItems([]);
+    setPackedItems([]);
+    setUnpackedItemsCount(0);
+  };
+
+  // --- Optimalizálás (API hívás) a teljes cargoItems listával ---
+  const handleOptimizePacking = async () => {
+    if (!selectedULD || !selectedULD.width || cargoItems.length === 0) return;
+
+    setLoading(true);
+
     try {
-      // 3. Kérés küldése a FastAPI /optimize végpontodra
       const response = await fetch('http://localhost:8000/api/v1/optimize', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           container: {
             id: String(selectedULD.id),
@@ -133,17 +182,21 @@ export default function FlightConfigurator() {
             cog_target_y: selectedULD.cog_target_y || (selectedULD.height ? selectedULD.height / 2 : 0),
             cog_target_z: selectedULD.cog_target_z || (selectedULD.depth ? selectedULD.depth / 2 : 0)
           },
-          items: rawItems
+          items: cargoItems
         })
       });
 
       if (response.ok) {
-        // 4. A backend visszaadja az OptimizeResponse-t!
         const packedData = await response.json();
 
         if (packedData.placed_items) {
-           // Kirajzoljuk a hézagmentes dobozokat a 3D nézetben
            setPackedItems(packedData.placed_items);
+
+           const placedCount = packedData.placed_items.length;
+           setUnpackedItemsCount(cargoItems.length - placedCount);
+
+           const placedIds = new Set(packedData.placed_items.map((pi: any) => pi.item.id));
+           setCargoItems(cargoItems.map(c => ({...c, is_placed: placedIds.has(c.id)})));
         }
       } else {
         console.error("Hiba történt az optimalizálás során", response.status);
@@ -155,11 +208,9 @@ export default function FlightConfigurator() {
     }
   };
 
-  // Aktuális súly és térfogat kiszámítása
   const currentTotalWeight = packedItems.reduce((sum, pi) => sum + (pi.item?.weight || pi.weight || 0), 0);
   const currentTotalVolume = packedItems.reduce((sum, pi) => sum + (pi.w * pi.h * pi.d) / 1_000_000, 0);
 
-  // CoG / Telítettség állapot
   const maxW = selectedULD?.max_gross_weight || 1;
   const isDanger = currentTotalWeight > maxW;
   const cogStatus = isDanger ? 'DANGER' : (currentTotalWeight > 0 ? 'OK' : 'UNKNOWN');
@@ -181,16 +232,13 @@ export default function FlightConfigurator() {
               onChange={(e) => {
                 setSelectedAircraft(e.target.value);
                 setSelectedContainerId("");
-                setPackedItems([]); // Töröljük a dobozokat gépváltáskor
+                setCargoItems([]);
+                setPackedItems([]);
               }}
               disabled={loading}
             >
-              <option value="">
-                {loading ? "Adatok betöltése..." : "-- Kérlek válassz egy gépet --"}
-              </option>
-              {aircrafts.map((ac) => (
-                <option key={ac.id} value={ac.id}>{ac.name}</option>
-              ))}
+              <option value="">{loading ? "Adatok betöltése..." : "-- Kérlek válassz egy gépet --"}</option>
+              {aircrafts.map((ac) => <option key={ac.id} value={ac.id}>{ac.name}</option>)}
             </select>
           </div>
 
@@ -200,19 +248,16 @@ export default function FlightConfigurator() {
             {selectedAircraftData ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
                   <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 md:col-span-2">
                     <p className="text-sm text-slate-400 mb-1">Típus</p>
                     <p className="text-xl font-bold text-white">{selectedAircraftData.name}</p>
                   </div>
-
                   <div className="bg-slate-900 p-4 rounded-xl border border-slate-700">
                     <p className="text-sm text-slate-400 mb-1">Maximális teherbírás</p>
                     <p className="text-xl font-bold text-blue-400">
                       {selectedAircraftData.max_cargo_weight ? `${selectedAircraftData.max_cargo_weight.toLocaleString()} kg` : 'Nincs adat'}
                     </p>
                   </div>
-
                   <div className="bg-slate-900 p-4 rounded-xl border border-slate-700">
                     <p className="text-sm text-slate-400 mb-1">Max. távolság</p>
                     <p className="text-xl font-bold text-blue-400">
@@ -220,16 +265,8 @@ export default function FlightConfigurator() {
                     </p>
                   </div>
 
-                  <div className="bg-slate-900 p-4 rounded-xl border border-slate-700">
-                    <p className="text-sm text-slate-400 mb-1">Body Type</p>
-                    <p className="text-lg font-semibold text-white">
-                      {selectedAircraftData.body_type ? selectedAircraftData.body_type : 'Nincs adat'}
-                    </p>
-                  </div>
-
                   <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 md:col-span-2">
                     <p className="text-sm text-slate-400 mb-2">Kompatibilis ULD-k</p>
-
                     {selectedAircraftData.compatible_containers && selectedAircraftData.compatible_containers.length > 0 ? (
                       <select
                         className="w-full bg-slate-800 border border-slate-600 text-white p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer mb-4"
@@ -254,32 +291,35 @@ export default function FlightConfigurator() {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-blue-900/20 rounded-xl border border-blue-800/50 mt-4">
                         <div>
                           <p className="text-xs text-blue-300/70 uppercase tracking-wider mb-1">Max bruttó súly</p>
-                          <p className="text-lg font-semibold text-blue-200">
-                            {selectedULD.max_gross_weight ? `${selectedULD.max_gross_weight} kg` : 'Nincs adat'}
-                          </p>
+                          <p className="text-lg font-semibold text-blue-200">{selectedULD.max_gross_weight} kg</p>
                         </div>
                         <div>
                           <p className="text-xs text-blue-300/70 uppercase tracking-wider mb-1">Önsúly (Tare)</p>
-                          <p className="text-lg font-semibold text-blue-200">
-                            {selectedULD.tare_weight ? `${selectedULD.tare_weight} kg` : 'Nincs adat'}
-                          </p>
+                          <p className="text-lg font-semibold text-blue-200">{selectedULD.tare_weight} kg</p>
                         </div>
                         <div>
                           <p className="text-xs text-blue-300/70 uppercase tracking-wider mb-1">Térfogat</p>
-                          <p className="text-lg font-semibold text-blue-200">
-                            {selectedULD.volume ? `${selectedULD.volume} m³` : 'Nincs adat'}
-                          </p>
+                          <p className="text-lg font-semibold text-blue-200">{selectedULD.volume} m³</p>
                         </div>
                       </div>
                     )}
                   </div>
-
                 </div>
               </div>
             ) : (
               <div className="flex items-center justify-center h-full pb-10">
                 <p className="text-slate-500 text-center">Kérlek válassz egy repülőgépet a listából,<br/> hogy megtekinthesd a részleteit.</p>
               </div>
+            )}
+
+            {selectedAircraftData && (
+              <FuelCalculator
+                aircraftId={selectedAircraftData.id}
+                aircraftName={selectedAircraftData.name}
+                maxRange={selectedAircraftData.max_range_km}
+                maxPayloadKg={selectedAircraftData.max_cargo_weight}
+                currentPayloadKg={currentTotalWeight}
+              />
             )}
           </div>
         </div>
@@ -295,34 +335,87 @@ export default function FlightConfigurator() {
             cogStatus={cogStatus}
           />
 
-          <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl flex flex-col overflow-hidden">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl flex flex-col overflow-hidden relative">
 
-             <div className="p-4 bg-slate-900/50 border-b border-slate-700 flex justify-between items-center">
+             {/* 3D NÉZET FEJLÉC ÉS IRÁNYÍTÁS */}
+             <div className="p-4 bg-slate-900/50 border-b border-slate-700 flex flex-col xl:flex-row justify-between items-center gap-4">
                 <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">3D Bin Packing Nézet</h3>
+
                 {selectedULD && selectedULD.width && (
-                  <div className="flex items-center gap-3">
-                    <label className="text-slate-400 text-sm font-medium">Mennyiség:</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="200"
-                      value={boxCount}
-                      onChange={(e) => setBoxCount(Number(e.target.value))}
-                      className="w-20 bg-slate-900 border border-slate-600 text-white px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-center font-mono"
-                    />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2 bg-slate-900 p-1.5 rounded-lg border border-slate-700">
+                       <input
+                          type="number" min="1" max="200" value={boxCount}
+                          onChange={(e) => setBoxCount(Number(e.target.value))}
+                          className="w-16 bg-slate-800 border border-slate-600 text-white px-2 py-1 rounded outline-none text-center font-mono text-sm"
+                        />
+                        <button
+                          onClick={handleGenerateBoxes}
+                          className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded text-sm transition-colors"
+                        >
+                          + Auto
+                        </button>
+                    </div>
+
                     <button
-                      onClick={handleGenerateBoxes}
-                      disabled={loading}
-                      className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:text-slate-400 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-indigo-900/20"
+                      onClick={handleOptimizePacking}
+                      disabled={loading || cargoItems.length === 0}
+                      className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:text-slate-400 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-lg shadow-indigo-900/20 ml-auto"
                     >
-                      {loading ? "Feldolgozás..." : "Generálás"}
+                      {loading ? "Feldolgozás..." : "Optimalizálás (Pakolás)"}
                     </button>
                   </div>
                 )}
              </div>
 
+             {/* MANUÁLIS HOZZÁADÁS SÁV (BŐVÍTVE) */}
+             {selectedULD && (
+               <div className="bg-slate-800 p-3 border-b border-slate-700 flex flex-wrap gap-3 items-end text-sm">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Szélesség (cm)</label>
+                    <input type="number" value={manualBox.w} onChange={e => setManualBox({...manualBox, w: Number(e.target.value)})} className="w-16 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-center" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Magasság (cm)</label>
+                    <input type="number" value={manualBox.h} onChange={e => setManualBox({...manualBox, h: Number(e.target.value)})} className="w-16 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-center" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Mélység (cm)</label>
+                    <input type="number" value={manualBox.d} onChange={e => setManualBox({...manualBox, d: Number(e.target.value)})} className="w-16 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-center" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Súly (kg)</label>
+                    <input type="number" value={manualBox.weight} onChange={e => setManualBox({...manualBox, weight: Number(e.target.value)})} className="w-16 bg-slate-900 border border-emerald-600/50 rounded px-2 py-1 text-emerald-400 font-bold text-center" />
+                  </div>
+                  {/* ÚJ DARABSZÁM MEZŐ */}
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Darab</label>
+                    <input type="number" min="1" max="100" value={manualBox.count} onChange={e => setManualBox({...manualBox, count: Number(e.target.value)})} className="w-16 bg-slate-900 border border-blue-600/50 rounded px-2 py-1 text-blue-400 font-bold text-center" />
+                  </div>
+                  <button onClick={handleAddManualBox} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded font-medium transition-colors h-[34px]">
+                    + Kézi hozzáadás
+                  </button>
+               </div>
+             )}
+
+             {/* 3D SCENE */}
              {selectedULD && selectedULD.width ? (
-                <div className="w-full min-h-[500px]">
+                <div className="w-full h-[500px] relative">
+
+                  {unpackedItemsCount > 0 && (
+                    <div className="absolute top-4 right-4 z-10 bg-red-500/90 backdrop-blur-sm text-white px-4 py-2 rounded-xl border border-red-400 shadow-lg shadow-red-900/30 flex items-center gap-2 animate-bounce">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                      <span className="font-bold">{unpackedItemsCount} doboz kimaradt!</span>
+                    </div>
+                  )}
+
+                  {packedItems.length > 0 && unpackedItemsCount === 0 && cargoItems.length > 0 && (
+                     <div className="absolute top-4 right-4 z-10 bg-emerald-500/90 backdrop-blur-sm text-white px-4 py-2 rounded-xl border border-emerald-400 shadow-lg shadow-emerald-900/30 flex items-center gap-2">
+                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                       <span className="font-bold">Minden befért!</span>
+                     </div>
+                  )}
+
                   <Scene
                     container={{
                       id: String(selectedULD.id),
@@ -345,8 +438,40 @@ export default function FlightConfigurator() {
              )}
           </div>
 
-        </div>
+          {/* LISTA A RAKOMÁNYRÓL */}
+          {cargoItems.length > 0 && (
+            <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden mt-2">
+              <div className="p-4 bg-slate-900/50 border-b border-slate-700 flex justify-between items-center">
+                <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Rakomány Lista ({cargoItems.length} db)</h3>
+                <button onClick={handleClearBoxes} className="text-red-400 hover:text-red-300 text-xs font-semibold uppercase tracking-wider transition-colors">Összes törlése</button>
+              </div>
+              <div className="max-h-60 overflow-y-auto p-4 custom-scrollbar">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                  {cargoItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`p-3 rounded-lg border text-sm flex flex-col gap-1 transition-all
+                        ${packedItems.length > 0 
+                            ? (item.is_placed 
+                                ? 'bg-emerald-900/20 border-emerald-800/50 text-emerald-200' 
+                                : 'bg-red-900/20 border-red-800/50 text-red-200 opacity-80') 
+                            : 'bg-slate-900 border-slate-700 text-slate-300'
+                        }`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-mono text-xs opacity-70">{item.id.split('-').slice(0, 2).join('-')}</span>
+                        {item.type === 'Egyedi' && <span className="bg-blue-900 text-blue-200 text-[10px] px-1.5 py-0.5 rounded">Egyedi</span>}
+                      </div>
+                      <div className="font-semibold">{item.width} x {item.height} x {item.depth} cm</div>
+                      <div className="font-bold mt-1 text-right">{item.weight} kg</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
+        </div>
       </div>
     </div>
   );
