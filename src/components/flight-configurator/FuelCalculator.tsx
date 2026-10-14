@@ -58,7 +58,7 @@ export default function FuelCalculator({
     const fetchFuelMath = async () => {
       setIsCalculating(true);
       try {
-        const response = await fetch('http://localhost:8000/api/v1/fuel/calculate', {
+        const response = await fetch('http://127.0.0.1:8000/api/v1/fuel/calculate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
