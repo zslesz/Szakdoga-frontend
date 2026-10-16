@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import Login from './components/auth/Login.tsx';
-import FlightConfigurator from './components/flight-configurator/FlightConfigurator.tsx';
+import Login from './components/auth/Login';
+import FlightConfigurator from './components/flight-configurator/FlightConfigurator';
+import CustomerPortal from './components/flight-configurator/CustomerPortal.tsx';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -8,31 +9,36 @@ export default function App() {
   const [role, setRole] = useState('');
 
   useEffect(() => {
-    // Ellenőrizzük, van-e már token a böngészőben (hogy ne kelljen frissítéskor újra belépni)
     const token = localStorage.getItem('token');
     const savedRole = localStorage.getItem('role');
     const savedName = localStorage.getItem('username');
 
     if (token) {
       setIsAuthenticated(true);
-      setRole(savedRole || 'viewer');
+      setRole((savedRole || 'viewer').toLowerCase());
       setUsername(savedName || 'User');
     }
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('role');
-    localStorage.removeItem('username');
+    localStorage.clear();
     setIsAuthenticated(false);
   };
 
   if (!isAuthenticated) {
     return <Login onLoginSuccess={() => {
       setIsAuthenticated(true);
-      setRole(localStorage.getItem('role') || 'viewer');
+      setRole((localStorage.getItem('role') || 'viewer').toLowerCase());
       setUsername(localStorage.getItem('username') || 'User');
     }} />;
+  }
+
+  // ELDÖNTJÜK, MIT LÁT A FELHASZNÁLÓ A SZEREPKÖRE ALAPJÁN
+  let MainContent;
+  if (role === 'user' || role === 'customer') {
+    MainContent = <CustomerPortal />;
+  } else {
+    MainContent = <FlightConfigurator />;
   }
 
   return (
@@ -54,8 +60,9 @@ export default function App() {
         </div>
       </header>
 
-      {/* MAGA AZ ALKALMAZÁS */}
-      <FlightConfigurator />
+      {/* MAGA AZ ALKALMAZÁS NÉZETE */}
+      {MainContent}
+
     </div>
   );
 }
